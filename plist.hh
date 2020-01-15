@@ -11,6 +11,7 @@
 #include <functional>
 #include <stdexcept>
 #include <sstream>
+#include <tuple>
 
 namespace crz {
 
@@ -91,57 +92,37 @@ DEFAULT_COMPARER(>, greater)
 
 #undef DEFAULT_COMPARER
 
-// 获得给定函数类型的第n个参数类型。其中函数类型可以为普通函数、函数指针、函数对象（重载了operator()的对象，包括lambda表达式）
-template<unsigned N, typename T, typename ...Args>
-struct __nth_type_wrapper {
-    using type = typename __nth_type_wrapper<N - 1, Args...>::type;
-};
-template<typename T, typename ...Args>
-struct __nth_type_wrapper<0, T, Args...> {
-    using type = T;
-};
-template<unsigned N, typename ...Args>
-using __nth_type = typename __nth_type_wrapper<N, Args...>::type;
+template<typename R, typename ...As>
+struct __function_traits_base {
+    using function_type = std::function<R(As...)>;
 
-template<unsigned N, typename Ret, typename ...Args>
-auto __nth_arg_infer_fun_ptr(Ret(*)(Args...)) -> __nth_type<N, Args...>;
-template<unsigned N, typename Ret, typename F, typename ...Args>
-auto __nth_arg_infer_callable(Ret(F::*)(Args...)) -> __nth_type<N, Args...>;
-template<unsigned N, typename Ret, typename F, typename ...Args>
-auto __nth_arg_infer_callable(Ret(F::*)(Args...) const) -> __nth_type<N, Args...>;
+    using result_type = R;
 
-template<unsigned N, typename F, typename = __void_t<>>
-struct __nth_arg_type_wrapper {
-    using type = decltype(__nth_arg_infer_fun_ptr<N>(std::declval<typename std::decay<F>::type>()));
+    template<int N>
+    using argument_type = typename std::tuple_element<N, std::tuple<As...>>::type;
 };
-template<unsigned N, typename F>
-struct __nth_arg_type_wrapper<N, F, __void_t<decltype(&F::operator())>> {
-    using type = decltype(__nth_arg_infer_callable<N>(&F::operator()));
-};
-template<unsigned N, typename F>
-using __nth_arg_type = typename __nth_arg_type_wrapper<N, typename std::remove_reference<F>::type>::type;
 
-
-// 获得给定函数类型的返回值类型
-template<typename Ret, typename ...Args>
-auto __ret_infer_fun_ptr(Ret(*)(Args...)) -> Ret;
-template<typename Ret, typename F, typename ...Args>
-auto __ret_infer_callable(Ret(F::*)(Args...)) -> Ret;
-template<typename Ret, typename F, typename ...Args>
-auto __ret_infer_callable(Ret(F::*)(Args...) const) -> Ret;
-
-template<typename F, typename = __void_t<>>
-struct __ret_type_wrapper {
-    using type = decltype(__ret_infer_fun_ptr(std::declval<typename std::decay<F>::type>()));
-};
 template<typename F>
-struct __ret_type_wrapper<F, __void_t<decltype(&F::operator())>> {
-    using type = decltype(__ret_infer_callable(&F::operator()));
-};
-template<typename F>
-using __ret_type = typename __ret_type_wrapper<typename std::remove_reference<F>::type>::type;
+struct __function_traits : public __function_traits<decltype(&F::operator())> {};
+template<typename R, typename ...As>
+struct __function_traits<R(*)(As...)> : public __function_traits_base<R, As...> {};
+template<typename R, typename C, typename ...As>
+struct __function_traits<R(C::*)(As...)> : public __function_traits_base<R, As...> {};
+template<typename R, typename C, typename ...As>
+struct __function_traits<R(C::*)(As...) const> : public __function_traits_base<R, As...> {};
 
 }
+
+namespace ft {
+
+template<typename F>
+struct function_traits
+        : public detail::__function_traits<
+                typename std::decay<typename std::remove_reference<F>::type>::type> {
+};
+
+}
+
 
 // 可以存放不同类型对象的容器。
 class pcell {
@@ -297,7 +278,7 @@ public:
     // 判断容器内的对象是否为给定类型（其实可以直接用type_info判断）
     template<typename T, typename B = base_type<T>>
     bool isa() const {
-        return !has_value() ? false : dynamic_cast<holder_impl<B> *>(hdr) != nullptr;
+        return !has_value() ? false : dynamic_cast<holder_impl <B> *>(hdr) != nullptr;
     }
     // 显式类型转换函数
     template<typename T>
@@ -387,6 +368,10 @@ class plist : public std::vector<pcell> {
             throw std::out_of_range("index out of range");
         return i;
     }
+
+    template<typename F>
+    using first_arg_type = typename ft::function_traits<F>::template argument_type<0>;
+
 public:
     using std::vector<pcell>::vector;
 
@@ -492,7 +477,7 @@ public:
     // 排序函数。其中key是一个一元函数（类型为A => B），和python中的一样。rvs代表是否逆序排序
     template<typename F = std::function<const pcell &(const pcell &)>>
     plist &sort(bool rvs = false, F key = [](const pcell &x) -> const pcell & { return x; }) {
-        using arg_type = detail::__nth_arg_type<0, F>;
+        using arg_type = first_arg_type<F>;
         !rvs
         ? std::sort(begin(), end(),
                     [&](const pcell &a, const pcell &b) {
@@ -508,7 +493,7 @@ public:
     // 其他常用的列表操作
     template<typename F>
     plist &for_each(F trans) {
-        using arg_type = detail::__nth_arg_type<0, F>;
+        using arg_type = first_arg_type<F>;
         for (auto &x: *this)
             trans(x.cast<arg_type>());
         return *this;
@@ -516,7 +501,7 @@ public:
 
     template<typename F>
     plist map(F mapping) {
-        using arg_type = detail::__nth_arg_type<0, F>;
+        using arg_type = first_arg_type<F>;
         plist res;
         res.reserve(size());
         for (const auto &x: *this)
@@ -526,7 +511,7 @@ public:
 
     template<typename F>
     plist filter(F pred) {
-        using arg_type = detail::__nth_arg_type<0, F>;
+        using arg_type = first_arg_type<F>;
         plist res;
         for (const auto &x: *this) {
             if (pred(x.cast<arg_type>()))

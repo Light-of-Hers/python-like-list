@@ -112,7 +112,8 @@ TEST(list_index_and_slice, true) {
     // l[1:-1]
     println(l[{1, -1}]); // [1.2, wow, ???]
     // l[:]
-    println(l[{{}, {}}]); // [1, 1.2, wow, ???, User(3)]
+    println(l[{{},
+               {}}]); // [1, 1.2, wow, ???, User(3)]
     // l[-1:]
     println(l[{-1, {}}]); // [User(3)]
     // l[:1]
@@ -213,7 +214,7 @@ TEST(type_check, true) {
         }
     }
     for (auto &x: pl) {
-        if (x.type() == typeid(int)) {
+        if (x.isa<int>()) {
             println(x.cast<int>());
         } else if (x.type() == typeid(std::string)) {
             println(x.cast<const std::string &>());

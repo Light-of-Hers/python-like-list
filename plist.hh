@@ -295,9 +295,9 @@ public:
         return *this;
     }
     // 判断容器内的对象是否为给定类型（其实可以直接用type_info判断）
-    template<typename T>
-    bool is() const {
-        return has_value() ? false : dynamic_cast<holder_impl <T> *>(hdr) != nullptr;
+    template<typename T, typename B = base_type<T>>
+    bool isa() const {
+        return !has_value() ? false : dynamic_cast<holder_impl<B> *>(hdr) != nullptr;
     }
     // 显式类型转换函数
     template<typename T>
